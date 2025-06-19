@@ -1,22 +1,20 @@
 import streamlit as st
 import requests
 import pandas as pd
-import time
-import matplotlib.pyplot as plt
+import json
 
-# Konfiguration
+# API-URL
 API_URL = "https://api.gomining.com/api/nft-game/round/get-last"
-ACCESS_TOKEN = st.secrets["ACCESS_TOKEN"]  # Speichere den Token in Streamlit Secrets!
 
-# Session-State für Historie
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# API-Daten abrufen
+# Funktion: API-Daten holen
 def fetch_last_round():
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Authorization": f"Bearer {ACCESS_TOKEN}"
+        "Authorization": f"Bearer {st.secrets['ACCESS_TOKEN']}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
+        "Origin": "https://app.gomining.com",
+        "Referer": "https://app.gomining.com/",
+        "x-device-type": "desktop",
+        "Accept": "application/json"
     }
     response = requests.get(API_URL, headers=headers)
     if response.status_code == 200:
@@ -25,28 +23,38 @@ def fetch_last_round():
         st.error(f"API Fehler: {response.status_code}")
         return None
 
-st.title("⛏️ BTC Mining Wars Automatischer Bot")
+# Session-State: Rundenhistorie speichern
+if "history" not in st.session_state:
+    st.session_state.history = []
 
+# Streamlit UI
+st.title("⛏️ BTC Mining Wars Automatischer Bot")
+st.write("Die App holt automatisch die Daten der letzten Runde von der GoMining API und zeigt live Statistiken.")
+
+# API call
 data = fetch_last_round()
 
 if data:
-    # Extrahiere (je nach API Struktur anpassen)
-    round_id = data.get("round_id", None)
+    # Für Debug-Zwecke: rohe Antwort anzeigen
+    with st.expander("Rohdaten"):
+        st.json(data)
+
+    # Werte extrahieren (anpassen an echte API-Antwort!)
+    round_id = data.get("round_id", "unbekannt")
     winner = data.get("winner", "unbekannt")
     points = data.get("points", 0)
-    duration = data.get("duration", None)  # falls vorhanden
+    duration = data.get("duration", 0)  # falls vorhanden
 
-    # Prüfe ob neue Runde
+    # Neue Runde speichern, falls neu
     if not any(d["round_id"] == round_id for d in st.session_state.history):
         st.session_state.history.append({
             "round_id": round_id,
             "winner": winner,
             "points": points,
-            "duration": duration,
-            "timestamp": time.time()
+            "duration": duration
         })
 
-    # Zeige letzte Runde
+    # Letzte Runde anzeigen
     st.subheader("Letzte Runde")
     df_last = pd.DataFrame([{
         "Runde": round_id,
@@ -56,25 +64,16 @@ if data:
     }])
     st.table(df_last)
 
-    # Zeige Verlauf
-    st.subheader("Historie der Rundenlängen")
+    # Historie anzeigen
+    st.subheader("Rundenhistorie")
     df_hist = pd.DataFrame(st.session_state.history)
+    st.dataframe(df_hist)
 
-    if not df_hist.empty:
-        if "duration" in df_hist.columns:
-            df_hist["Dauer"].fillna(0, inplace=True)
-            st.line_chart(df_hist["Dauer"])
-
-            # Statistiken
-            avg_duration = df_hist["Dauer"].mean()
-            st.write(f"⏱ Durchschnittliche Rundenlänge: {avg_duration:.2f} Minuten")
-
-            # Wahrscheinlichkeit nächste Runde
-            st.write("🔮 Wahrscheinlichkeit, dass nächste Runde <= X Minuten:")
-            max_d = df_hist["Dauer"].max()
-            bins = list(range(0, int(max_d) + 5, 5))
-            hist = df_hist["Dauer"].value_counts(bins=bins, normalize=True).sort_index()
-            st.bar_chart(hist)
+    # Falls Dauer-Daten vorhanden: Chart + Statistik
+    if not df_hist.empty and "duration" in df_hist.columns:
+        if df_hist["duration"].notnull().any():
+            st.line_chart(df_hist["duration"])
+            st.write(f"⏱ Durchschnittliche Rundenlänge: {df_hist['duration'].mean():.2f} Minuten")
 
 else:
-    st.warning("Keine Daten empfangen.")
+    st.warning("Keine Daten empfangen oder API-Problem.")
