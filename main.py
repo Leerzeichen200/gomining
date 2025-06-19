@@ -1,13 +1,18 @@
 import streamlit as st
 import requests
-import json
 import pandas as pd
+import time
+import matplotlib.pyplot as plt
 
-# API URL + Access Token (Token bitte später sicherer verwalten!)
+# Konfiguration
 API_URL = "https://api.gomining.com/api/nft-game/round/get-last"
-ACCESS_TOKEN = "DEIN_ACCESS_TOKEN_HIER"  # <-- hier deinen Access Token einsetzen
+ACCESS_TOKEN = st.secrets["ACCESS_TOKEN"]  # Speichere den Token in Streamlit Secrets!
 
-# Funktion zum Abrufen der API-Daten
+# Session-State für Historie
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# API-Daten abrufen
 def fetch_last_round():
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -20,31 +25,56 @@ def fetch_last_round():
         st.error(f"API Fehler: {response.status_code}")
         return None
 
-st.title("🏆 BTC Mining Wars Bot")
-st.write("Automatische Auswertung der letzten Runde")
+st.title("⛏️ BTC Mining Wars Automatischer Bot")
 
-# API abrufen
 data = fetch_last_round()
 
 if data:
-    st.json(data)  # Zeigt die Rohdaten zur Kontrolle
-
-    # Beispiel: Extrahiere relevante Infos (je nach Struktur anpassen!)
-    round_id = data.get("round_id", "unbekannt")
+    # Extrahiere (je nach API Struktur anpassen)
+    round_id = data.get("round_id", None)
     winner = data.get("winner", "unbekannt")
-    points = data.get("points", "unbekannt")
+    points = data.get("points", 0)
+    duration = data.get("duration", None)  # falls vorhanden
 
-    st.write(f"**Runde:** {round_id}")
-    st.write(f"**Gewinner:** {winner}")
-    st.write(f"**Punkte:** {points}")
+    # Prüfe ob neue Runde
+    if not any(d["round_id"] == round_id for d in st.session_state.history):
+        st.session_state.history.append({
+            "round_id": round_id,
+            "winner": winner,
+            "points": points,
+            "duration": duration,
+            "timestamp": time.time()
+        })
 
-    # Optional: Tabelle erzeugen
-    df = pd.DataFrame([{
+    # Zeige letzte Runde
+    st.subheader("Letzte Runde")
+    df_last = pd.DataFrame([{
         "Runde": round_id,
         "Gewinner": winner,
-        "Punkte": points
+        "Punkte": points,
+        "Dauer": duration
     }])
-    st.table(df)
+    st.table(df_last)
+
+    # Zeige Verlauf
+    st.subheader("Historie der Rundenlängen")
+    df_hist = pd.DataFrame(st.session_state.history)
+
+    if not df_hist.empty:
+        if "duration" in df_hist.columns:
+            df_hist["Dauer"].fillna(0, inplace=True)
+            st.line_chart(df_hist["Dauer"])
+
+            # Statistiken
+            avg_duration = df_hist["Dauer"].mean()
+            st.write(f"⏱ Durchschnittliche Rundenlänge: {avg_duration:.2f} Minuten")
+
+            # Wahrscheinlichkeit nächste Runde
+            st.write("🔮 Wahrscheinlichkeit, dass nächste Runde <= X Minuten:")
+            max_d = df_hist["Dauer"].max()
+            bins = list(range(0, int(max_d) + 5, 5))
+            hist = df_hist["Dauer"].value_counts(bins=bins, normalize=True).sort_index()
+            st.bar_chart(hist)
 
 else:
     st.warning("Keine Daten empfangen.")
