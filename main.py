@@ -1,12 +1,10 @@
 import streamlit as st
 import requests
 import pandas as pd
-import json
+from datetime import datetime
 
-# API-URL
 API_URL = "https://api.gomining.com/api/nft-game/round/get-last"
 
-# Funktion: API-Daten holen
 def fetch_last_round():
     headers = {
         "Authorization": f"Bearer {st.secrets['ACCESS_TOKEN']}",
@@ -23,57 +21,47 @@ def fetch_last_round():
         st.error(f"API Fehler: {response.status_code}")
         return None
 
-# Session-State: Rundenhistorie speichern
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# Streamlit UI
 st.title("⛏️ BTC Mining Wars Automatischer Bot")
 st.write("Die App holt automatisch die Daten der letzten Runde von der GoMining API und zeigt live Statistiken.")
 
-# API call
 data = fetch_last_round()
 
-if data:
-    # Für Debug-Zwecke: rohe Antwort anzeigen
-    with st.expander("Rohdaten"):
-        st.json(data)
+if data and "data" in data:
+    rd = data["data"]
+    block_number = rd.get("blockNumber", "unbekannt")
+    started_at = rd.get("startedAt")
+    ended_at = rd.get("endedAt")
+    winner_clan = rd.get("winnerClanId", "unbekannt")
 
-    # Werte extrahieren (anpassen an echte API-Antwort!)
-    round_id = data.get("round_id", "unbekannt")
-    winner = data.get("winner", "unbekannt")
-    points = data.get("points", 0)
-    duration = data.get("duration", 0)  # falls vorhanden
+    # Berechne Dauer falls möglich
+    if started_at and ended_at:
+        start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
+        duration_min = (end_dt - start_dt).total_seconds() / 60
+    else:
+        duration_min = None
 
-    # Neue Runde speichern, falls neu
-    if not any(d["round_id"] == round_id for d in st.session_state.history):
-        st.session_state.history.append({
-            "round_id": round_id,
-            "winner": winner,
-            "points": points,
-            "duration": duration
-        })
-
-    # Letzte Runde anzeigen
+    # Zeige Block-Infos
     st.subheader("Letzte Runde")
-    df_last = pd.DataFrame([{
-        "Runde": round_id,
-        "Gewinner": winner,
-        "Punkte": points,
-        "Dauer": duration
-    }])
-    st.table(df_last)
+    st.write(f"**Block Number:** {block_number}")
+    st.write(f"**Winner Clan ID:** {winner_clan}")
+    st.write(f"**Started At:** {started_at}")
+    st.write(f"**Ended At:** {ended_at if ended_at else 'läuft noch'}")
+    st.write(f"**Dauer (min):** {duration_min:.2f}" if duration_min else "Dauer: läuft noch oder unvollständig")
 
-    # Historie anzeigen
-    st.subheader("Rundenhistorie")
-    df_hist = pd.DataFrame(st.session_state.history)
-    st.dataframe(df_hist)
-
-    # Falls Dauer-Daten vorhanden: Chart + Statistik
-    if not df_hist.empty and "duration" in df_hist.columns:
-        if df_hist["duration"].notnull().any():
-            st.line_chart(df_hist["duration"])
-            st.write(f"⏱ Durchschnittliche Rundenlänge: {df_hist['duration'].mean():.2f} Minuten")
+    # Clans-Tabelle
+    if "allClansState" in rd:
+        clans = []
+        for clan in rd["allClansState"]:
+            clans.append({
+                "Clan ID": clan.get("clanId"),
+                "Score": clan.get("currentAddedScore"),
+                "Active Boost": clan.get("activeBoostScore"),
+                "Clan Power": clan.get("clanPower")
+            })
+        df_clans = pd.DataFrame(clans).sort_values(by="Score", ascending=False)
+        st.subheader("Clans dieser Runde")
+        st.table(df_clans)
 
 else:
-    st.warning("Keine Daten empfangen oder API-Problem.")
+    st.warning("Keine gültigen Runden-Daten empfangen.")
